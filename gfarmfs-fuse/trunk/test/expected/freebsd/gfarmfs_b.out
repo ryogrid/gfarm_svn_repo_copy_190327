@@ -1,0 +1,6 @@
+gfarmfs: opt="-nlsu -b", fuse_opt=""
+NG [link] check_nlink(): nlink 1 instead of 2
+NG [mkfifo] test_mkfifo(): mkfifo: Operation not permitted
+NG [ftruncate(0) mode=0400] test_ftruncate(): ftruncate: Permission denied
+NG [ftruncate(0) mode=0000] test_ftruncate(): ftruncate: Permission denied
+4 tests failed

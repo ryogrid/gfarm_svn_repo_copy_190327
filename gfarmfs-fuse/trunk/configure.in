@@ -1,0 +1,145 @@
+AC_PREREQ(2.59)
+AC_INIT(gfarmfs-fuse, 2.0.0)
+AM_INIT_AUTOMAKE(AC_PACKAGE_NAME, AC_PACKAGE_VERSION)
+AC_CONFIG_SRCDIR(gfarmfs.c)
+AM_CONFIG_HEADER(config.h)
+AM_MAINTAINER_MODE
+
+AC_PROG_CC
+AC_PROG_INSTALL
+
+CFLAGS="$CFLAGS -Wall -W"
+export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH
+PKG_CHECK_MODULES(GFARMFS, [fuse >= 2.2])
+
+### Checks for libraries.
+
+AC_CHECK_LIB(gfarm, gfarm_initialize,,
+[
+echo "Please install the libraries of Gfarm."
+exit 1
+])
+gfarm_libs=$LIBS
+AC_SUBST(gfarm_libs)
+LIBS=
+
+### Checks for header files.
+
+AC_CHECK_HEADER(gfarm/gfarm.h,,
+[
+echo "Please install the headers of Gfarm."
+exit 1
+])
+
+AC_CHECK_HEADERS(paths.h)
+
+### Check for FUSE interface.
+
+fuse_interface=0
+KERNEL_NAME=`uname -s`
+if test x"$KERNEL_NAME" = x"Linux"; then
+  if test $fuse_interface = 0; then
+AC_TRY_CPP([
+#define _FILE_OFFSET_BITS 64
+#define FUSE_USE_VERSION 25
+#include <fuse.h>
+],fuse_interface=25,)
+  fi
+  if test $fuse_interface = 0; then
+AC_TRY_CPP([
+#define _FILE_OFFSET_BITS 64
+#define FUSE_USE_VERSION 22
+#include <fuse.h>
+],fuse_interface=22,)
+  fi
+  if test $fuse_interface = 0; then
+    echo "Please install FUSE 2.2 or later."
+    exit 1
+  elif test $fuse_interface = 22; then
+    fuse_mode="FUSE22_Linux"
+    echo "using FUSE version 2.2 interface (limited spec)"
+  elif test $fuse_interface = 25; then
+    fuse_mode="FUSE25_Linux"
+    echo "using FUSE version 2.5 interface"
+    KERNEL_RELEASE=`uname -r`
+    KLEN=`expr length $KERNEL_NAME`
+    RLEN=`expr length $KERNEL_RELEASE`
+    if test $KLEN -ne 0 -a $RLEN -ne 0 -a x"$KERNEL_NAME" = x"Linux"; then
+      MAJVER=`echo $KERNEL_RELEASE | cut -f-2 -d.`
+      if test x"$MAJVER" = x"2.6"; then
+        MINVER=`echo $KERNEL_RELEASE | cut -f 3 -d. | cut -f 1 -d. | cut -f 1 -d- `
+        if test $MINVER -ge 15; then  ## >= 2.6.15
+          echo "found Linux Kernel version 2.6.15 or later (full spec)"
+        else
+          echo "found Linux Kernel version 2.6.14 or earlier (disable CREATE)"
+          echo "(FTRUNCATE, ACCESS and FGETATTR cannot work too.)"
+          AC_DEFINE(USE_KERNEL_2_6_14, 1, [Use Linux kernel 2.6.14 or earlier])
+          fuse_mode="FUSE25_Linux26_old"
+        fi
+      fi
+    fi
+  fi
+else  ### != Linux ###
+AC_TRY_CPP([
+#define _FILE_OFFSET_BITS 64
+#define FUSE_USE_VERSION 25
+#include <fuse.h>
+],fuse_interface=25,
+[ echo "Please install FUSE 2.5 or later."
+  exit 1
+])
+  echo "using FUSE version 2.5 interface"
+  if test x"$KERNEL_NAME" = x"FreeBSD"; then
+    fuse_mode="FUSE25_FreeBSD"
+  else
+    fuse_mode="FUSE25_unknown"
+  fi
+fi
+
+AC_SUBST(fuse_interface)
+AC_SUBST(fuse_mode)
+
+
+### Checks for Gfarm functions
+
+LIBS=$gfarm_libs
+
+AC_TRY_LINK([
+#include <stdio.h>
+#include <gfarm/gfarm.h>],[
+gfs_statfsnode(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);],
+[
+AC_DEFINE(USE_GFS_STATFSNODE, 1, [Use gfs_statfsnode()])
+],[])
+
+AC_TRY_LINK([
+#include <stdio.h>
+#include <gfarm/gfarm.h>],[
+gfarm_schedule_search_idle_acyclic_hosts_to_write(0, NULL, NULL, NULL);],
+[
+AC_DEFINE(USE_SCHEDULER, 1, [Use scheduler])
+],[])
+
+AC_TRY_LINK([
+#include <stdio.h>
+#include <gfarm/gfarm.h>],[
+gfs_pio_set_view_scramble(NULL, 0);],
+[
+AC_DEFINE(USE_GFARM_SCRAMBLE, 1, [Use gfs_pio_set_view_scramble()])
+],[])
+
+LIBS=
+
+AC_CONFIG_FILES(
+Makefile
+test/Makefile
+test/conf.sh
+test/expected/Makefile
+test/expected/default/Makefile
+test/expected/fuse25_linux26_old/Makefile
+test/expected/freebsd/Makefile
+contrib/Makefile
+contrib/gfarmfs-exec/Makefile
+contrib/mount.gfarmfs/Makefile)
+
+AC_OUTPUT

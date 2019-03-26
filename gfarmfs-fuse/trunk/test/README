@@ -1,0 +1,32 @@
+*** Expected files and target environment
+
+./expected/default/*.out
+
+  - Linux kernel 2.6.15 or later
+  - FUSE 2.5 or later
+  - Gfarm 1.4 or later
+
+./expected/linux_old/*.out
+
+  - Linx kernel 2.6.X where X <= 14
+  - FUSE 2.5 or later
+
+./expected/freebsd/*.out
+
+  - FreeBSD 6.1-RELEASE
+  - FUSE 2.5 or later
+
+*** Do test
+
+  (make sure your the installation and the environment setting of Gfarm.)
+  $ make check
+
+*** Check files if errors happen
+
+  $ cat ./diffs/*.out
+
+*** How to update the expected results
+
+  $ make check
+  (make sure ./output/*.out files)
+  $ mv ./output/*.out ./expected/{target directory}/

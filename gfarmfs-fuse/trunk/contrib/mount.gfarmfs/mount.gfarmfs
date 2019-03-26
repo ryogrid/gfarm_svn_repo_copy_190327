@@ -1,0 +1,69 @@
+#!/bin/sh
+#
+# $Id: mount.gfarmfs 3844 2007-10-15 22:23:39Z tatebe $
+
+USAGE() {
+cat <<EOF
+mount.gfarmfs [ username mount_point options ]
+
+Environment variable:
+    GFS_USERNAME     global user name in Gfarm  (default: $LOGNAME)
+    GFS_MOUNTDIR     mount point    (default: /gfs/home/$GFS_USERNAME)
+    GFARMFS_ROOT     directory to be mounted in Gfarm (default: /$GFS_USERNAME)
+    GFARMFS_OPTIONS  gfarmfs mount options      (default: -lsu)
+    FUSE_OPTIONS     fuse mount options
+EOF
+	exit 1
+}
+
+ABORT() {
+	[ $# -gt 0 ] && echo 1>&2 $*
+	exit 1
+}
+
+[ x"$1" = x"-h" -o x"$1" = x"--help" ] && USAGE
+
+if [ $# -gt 0 ]; then
+	GFS_USERNAME=$1
+	shift
+fi
+if [ $# -gt 0 ]; then
+	GFS_MOUNTDIR=$1
+	shift
+fi
+if [ $# -gt 0 ]; then
+	FUSE_OPTIONS=$*
+fi
+
+: ${GFS_USERNAME:=`gfwhoami 2> /dev/null`}
+: ${GFS_USERNAME:=$USER}
+: ${GFS_USERNAME:=$LOGNAME}
+: ${GFS_USERNAME:=`logname 2> /dev/null`}
+: ${GFS_MOUNTDIR:=/gfs/home/$GFS_USERNAME}
+: ${GFARMFS_ROOT:=/$GFS_USERNAME}
+: ${GFARMFS_OPTIONS:=-lsu}
+: ${FUSE_OPTIONS:=}
+
+# XXX - need sanity check for GFS_USERNAME
+
+DELETE_MOUNTDIR_ON_ERROR=0
+if [ ! -d $GFS_MOUNTDIR ]; then
+	mkdir -p $GFS_MOUNTDIR ||
+		ABORT "cannot create a mount point: " $GFS_MOUNTDIR
+	DELETE_MOUNTDIR_ON_ERROR=1
+fi
+[ -O $GFS_MOUNTDIR ] || ABORT "$GFS_MOUNTDIR: not owned by " $LOGNAME
+
+# if already mounted, exit
+grep $GFS_MOUNTDIR /etc/mtab > /dev/null && exit 0
+
+gfarmfs -m $GFARMFS_ROOT $GFARMFS_OPTIONS $GFS_MOUNTDIR $FUSE_OPTIONS
+STATUS=$?
+
+if [ $STATUS = 0 ]; then
+	echo Mount GfarmFS on $GFS_MOUNTDIR
+else
+	[ $DELETE_MOUNTDIR_ON_ERROR = 1 ] && rmdir $GFS_MOUNTDIR
+fi
+
+exit $STATUS

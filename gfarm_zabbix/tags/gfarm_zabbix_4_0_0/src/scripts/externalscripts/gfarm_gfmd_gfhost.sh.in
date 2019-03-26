@@ -1,0 +1,57 @@
+#! /bin/sh
+#
+# External script for gfarm-zabbix.
+#
+# This script is assumed to be executed on gfmd hosts.
+# It tries executing 'gfhost' to check whether it can connect with
+# master gfmd servers and succeeds in authentication.
+#
+
+. @ZABBIX_EXTSCRIPTDIR@/gfarm_utils.inc
+
+#
+# Parse command line arguments.
+#
+
+#
+# Read a configuration file
+#
+CONF_FILE=@ZABBIX_EXTSCRIPTDIR@/gfarm_conf.inc
+[ -f $CONF_FILE ] && . $CONF_FILE
+
+#
+# Create temporary files
+#
+outfile=/tmp/gfarm_gfmd_gfhost.out.$$
+errfile=/tmp/gfarm_gfmd_gfhost.err.$$
+trap "rm -f $outfile $errfile; log_err 'killed'; exit 1" 1 2 3 15
+rm -f $outfile $errfile
+
+#
+# Execute 'gfhost'.
+#
+GFCMD="@GFARM_BINDIR@/gfhost -M"
+sudo -n -u _gfarmmd @GFARM_BINDIR@/gfservice-timeout $TIMEOUT \
+    $GFCMD > $outfile 2> $errfile
+GFCMD_EXITCODE=$?
+if check_auth_error $errfile; then
+    echo "auth request to master gfmd failed"
+    rm -f $outfile $errfile
+    exit 0
+elif [ $GFCMD_EXITCODE -ne 0 ]; then
+    # We ignore the execution failure itself, since too many alerts will
+    # be triggered if each file system node reports the failure.
+    echo "ok"
+    if [ $GFCMD_EXITCODE -eq $TIMEOUT_EXITCODE ]; then
+        log_warning "'$GFCMD' failed, timeout"
+    else
+        log_warning "'$GFCMD' failed with the exit code $GFCMD_EXITCODE"
+    fi
+    [ -s $errfile ] && head -1 $errfile | log_warning
+    rm -f $outfile $errfile
+    exit 0
+fi
+
+echo "ok"
+rm -f $outfile $errfile
+exit 0

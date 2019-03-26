@@ -1,0 +1,9 @@
+gfarmfs: opt="", fuse_opt=""
+NG [symlink] test_symlink(): symlink: Operation not permitted
+NG [link] test_link(): link: Operation not permitted
+NG [mkfifo] test_mkfifo(): mkfifo: Operation not permitted
+NG [mkdir] check_nlink(): nlink 32000 instead of 2
+NG [open_acc(O_RDONLY | O_TRUNC) mode=0200 errno=EACCES] check_size(): length 0 instead of 26
+NG [open_acc(O_RDWR | O_TRUNC) mode=0200 errno=EACCES] check_size(): length 0 instead of 26
+NG [open(O_WRONLY) fchmod(0400) truncate(5) errno=EACCES] test_open_truncate(): truncate should have failed
+7 tests failed

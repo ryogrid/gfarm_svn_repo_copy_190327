@@ -1,0 +1,47 @@
+#! /bin/sh
+#
+# External script for gfarm-zabbix.
+#
+# This script is assumed to be executed on gfmd hosts.
+# It checks whether PostgreSQL daemon process exists or not.
+#
+
+. @ZABBIX_EXTSCRIPTDIR@/gfarm_utils.inc
+
+#
+# Parse command line arguments.
+#
+
+#
+# Read a configuration file
+#
+CONF_FILE=@ZABBIX_EXTSCRIPTDIR@/gfarm_conf.inc
+[ -f $CONF_FILE ] && . $CONF_FILE
+
+#
+# Set path of PID file.
+#
+PID_FILE=${GFMD_CONFIG_PREFIX}/var/gfarm-pgsql/postmaster.pid
+
+#
+# See PID_FILE and check whether the process exists
+#
+(
+echo "PID_FILE='$PID_FILE'"
+cat <<'_EOF_'
+if [ ! -f $PID_FILE ]; then
+    echo "not running"
+else
+    PID=`awk 'NR==1 { if ($1 ~ /^[0-9]+$/) { print $1 }; exit }' $PID_FILE`
+    if [ -z "$PID" ]; then
+	echo "no PID in $PID_FILE"
+    elif kill -0 $PID; then
+	echo "ok"
+    else
+	echo "dead abnormally"
+    fi
+fi
+_EOF_
+) | sudo -n -u $POSTGRES_USER /bin/sh
+
+exit 0

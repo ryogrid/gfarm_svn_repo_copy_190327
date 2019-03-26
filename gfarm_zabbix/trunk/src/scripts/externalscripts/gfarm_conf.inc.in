@@ -1,0 +1,23 @@
+# --prefix directory which was specified by config-gfarm
+GFMD_CONFIG_PREFIX=@GFMD_CONFIG_PREFIX@
+
+# syslog facility
+SYSLOG_FACILITY=@ZABBIX_SYSLOG_FACILITY@
+
+# UNIX user privilege which is used by the PostgreSQL daemon
+POSTGRES_USER=@POSTGRES_USER@
+
+# Host name on which PostgreSQL server is running.
+PGHOST=@PGHOST@
+
+# TCP port number on which PostgreSQL server is listening.
+PGPORT=@PGPORT@
+
+# Database name of PostgreSQL.
+PGDATABASE=@PGDATABASE@
+
+# User name used to connect with the PostgreSQL server.
+PGUSER=@PGUSER@
+
+# Password to connect with the PostgreSQL server.
+PGPASSWORD=@PGPASSWORD@

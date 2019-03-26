@@ -1,0 +1,529 @@
+Copyright (c) 2005-2007 National Institute of Advanced Industrial
+Science and Technology (AIST).
+Copyright (c) 2006-2007 Osamu Tatebe.
+
+============
+GfarmFS-FUSE
+============
+
+GfarmFS-FUSE enables you to mount a Gfarm filesystem in userspace.
+
+  Gfarm:
+      http://datafarm.apgrid.org/
+      http://sourceforge.net/projects/gfarm/
+
+  FUSE:
+      http://fuse.sourceforge.net/
+
+
+===========
+Quick start
+===========
+
+For example, on Fedora Core 5 :
+
+  FUSE:
+    # yum install fuse fuse-libs fuse-devel
+    # (GfarmFS-FUSE users should belong to 'fuse' group.)
+
+  Gfarm:
+    # rpm -ivh gfarm-libs-1.4-0.i386.rpm gfarm-client-1.4-0.i386.rpm \
+      gfarm-devel-1.4-0.i386.rpm
+    $ (Check if your Gfarm configuration file (ex.: ~/.gfarmrc) is correct.)
+    $ (Check if your authenticaion to a Gfarm filesystem is successful
+       by commands (ex.: gfhost, gfkey or grid-proxy-init).)
+
+  GfarmFS-FUSE:
+    $ tar zxvf gfarmfs-fuse-2.0.0.tar.gz
+    $ cd gfarmfs-fuse-2.0.0
+    $ ./configure
+    $ make
+    $ mkdir ~/mountpoint
+    $ ./gfarmfs ~/mountpoint
+    $ cd ~/mountpoint
+
+
+============
+Dependencies
+============
+
+If all recommended environments are satisfied, you can use full functions
+of GfarmFS-FUSE.
+
+*** Operating System
+
+    Requirement:
+        The operating system which can use FUSE mechanism.
+        (ex. FUSE version 2.6 can work on Linux kernel version 2.6.9
+             or later.)
+    Recommendation:
+        Linux kernel version 2.6.15 or later.
+    Tested environments:
+        Fedora Core 5 (Linux kernel version 2.6.19)
+        CentOS 4.4    (Linux kernel version 2.6.9)
+        (Build test only) FreeBSD 6.1-RELEASE
+
+*** FUSE
+
+    Requirement:
+        FUSE version 2.2 or later.
+    Recommendation:
+        FUSE version 2.5 or later.
+
+*** Gfarm
+
+    Requirement:
+        Gfarm version 1.2 or later.
+    Recommendation:
+        Gfarm version 1.4 or later.
+
+
+============
+Installation
+============
+
+To build GfarmFS-FUSE, development packages of Gfarm and FUSE are
+required.  When you install Gfarm using RPM binary packages, you
+should install gfarm-gsi-devel (or gfarm-devel) package together.
+
+Installation steps of GfarmFS-FUSE:
+
+    $ ./configure [options]
+    $ make
+    $ make install
+
+Configure options:
+
+--prefix=<directory>
+
+  Specifies a destination directory for installation.  The 'gfarmfs'
+  command is installed in 'directory'/bin.  Default <directory> is
+  /usr/local.
+
+If Gfarm or FUSE is not installed to a default location, you may
+need to specify the location by CPPFLAGS and LDFLAGS environment
+variables in configure.  In the case of sh or bash,
+
+    $ CPPFLAGS='-I/usr/local/include' LDFLAGS='-L/usr/local/lib -Wl,-R,/usr/local/lib' ./configure
+
+In the case of csh or tcsh,
+
+    $ env CPPFLAGS='-I/usr/local/include' LDFLAGS='-L/usr/local/lib -Wl,-R,/usr/local/lib' ./configure
+
+
+=====
+Mount
+=====
+
+Make sure your Gfarm environment is set for client.
+(See INSTALL.en of Gfarm.)
+For example, when you install Gfarm using RPM binary packages, you
+should install gfarm-gsi-libs (or gfarm-libs) and gfarm-gsi-client
+(or gfarm-client) packages.
+
+Make sure your FUSE environment is ready to use.  For examale, 
+on Fedora Core 5, when fuse and fuse-libs RPM packages are installed,
+users must belong to 'fuse' group which is permitted to execute the
+'fusermount' command.
+
+Run the 'gfarmfs' command as a normal user to mount a Gfarm
+filesystem:
+
+    $ gfarmfs [GfarmFS options] <mountpoint> [FUSE options]
+
+<mountpoint> needs to be a directory where a user can access in read
+and write mode.  By default, other users who are not a user that
+mounts a Gfarm file system cannot access files or directories under
+the mountpoint.
+
+If you cannot mount a Gfarm filesystem, make sure the 'fuse' kernel
+module is loaded, and you are the user(group) which is permitted to
+use FUSE.
+
+Please read README included in FUSE package which explains details
+of FUSE.
+
+You can also specify the mount point in /etc/fstab,
+
+Examble of /etc/fstab:
+
+  gfarmfs#-lsu  <mountpoint>  fuse  noauto,user,exec  0  0
+
+and then run this command.
+
+  $ mount <mountpoint>
+
+=======
+Unmount
+=======
+
+Run the 'fusermount' command of FUSE. (See README of FUSE.):
+
+    $ fusermount -u <mountpoint>
+
+
+=======
+Options
+=======
+
+Please print help message by '-h' option and see README of FUSE in
+order to get information of FUSE options.
+
+  RPM package: (ex.) /usr/share/doc/fuse-2.6.3/README
+  SourceForge: http://fuse.cvs.sourceforge.net/fuse/fuse/
+
+Additional notes of FUSE options:
+
+-o kernel_cache
+
+  By specifying the kernel_cache option of FUSE, speed of reading
+  the same file will be faster from the second time.  However,
+  update of the file will not be reflected to another gfarmfs's
+  cache.  Please be aware of this risk when you use the
+  kernel_cache option.
+  
+-o default_permissions
+
+  This option is recommended.  Some behavior about invalid file access
+  permissions work correctly by this option.  In addition, performance
+  improvement (at EACCES) and consideration of the group permissions
+  are provided.
+
+  To ignore the group permissions, you cannot use this option.
+  Because Gfarm v1 does not have group ID, a group name of a file
+  is the group which the file-owner belong to.
+
+GfarmFS options:
+
+-h
+
+  Print help message.
+
+-v
+
+  Show version.
+
+-m <directory on a Gfarm filesystem>
+
+  The specified directory on a Gfarm filesystem will be a top
+  directory under the mount point.  (ex. -m /username)  If this
+  option is not given, the root directory of the Gfarm filesystem
+  will be used.
+
+-s, --symlink
+
+  Enables symlink(2) emulation.  The emulation is implemented by
+  copying a target file to another invisible file whose suffix is
+  '.gfarmfs-symlink'  You can use this option until Gfarm does
+  support symlink(2).
+
+-l, --linkiscopy
+
+  Enables link(2) emulation.  The emulated is implemented by
+  copying a target file to another file, instead of creating
+  hardlink.  You can use this option until Gfarm does support
+  link(2).
+
+-u, --unlinkall
+
+  With this option, unlink(2) removes all binaries for different
+  architectures of the specified file that has execution bits.  This
+  was a default behavior in the GfarmFS-FUSE version 1.0.
+
+  Since GfarmFS-FUSE version 1.1, unlink(2) removes just a binary that
+  corresponds to the client architecture of the specified file that
+  has execution bits, which is the same behavior as the Gfarm syscall
+  hooking library since Gfarm version 1.2.
+
+-n, --dirnlink
+
+  Counts the nlink of a directory precisely.  But performance becomes
+  worse.  If this option is not specified, the nlink of a directory is
+  always 32000.
+
+-F, --exactfilesize
+
+  While one gfarmfs client is open(2)ing a file, another gfarmfs
+  client can get an exact st_size by stat(2).  This option is useful
+  if you launch multiple gfarmfs clients on different hosts.
+
+-S, --disable-statfs
+
+  Disables statfs(2) and statvfs(2).
+
+-b, --buffered
+
+  Enables buffered I/O.
+
+  Remote access will be faster by using this option.  Accessing the
+  same file from multiple gfarmfs clients, however, the updated data
+  is not immediately reflected to another gfarmfs client.
+
+-N <num-of-replicas>
+
+  Specifies a number of file replicas.  After creating a new file
+  or modifying an existng file, the file is automatically and 
+  asynchronously replicated.
+
+  In this case, the use of gfarm_agent is strongly recommended.  If
+  gfarm_agent is not used, the peformance of auto replication will be
+  worse.  Note that an unreadable file is not replicated.
+
+  Don't rename a file or directory from other clients when you use
+  this option on Gfarm v1.
+
+  At present, any emulated entry as symlink or hardlink is not
+  replicated. (not implememted)
+
+-D <destination-domainname>
+
+  Specifies destination nodes for replication by the domain name.
+  All replicas will be created on the nodes with -N option.
+
+--errlog <filename>
+
+  Specifies a filename for recording error messages that is not
+  returned as errno to the application accessing the gfarm filesystem
+  through gfarmfs.  For example, errors for replication are recorded
+  in the file.
+
+--syslog
+
+  Records the same error messages as --errlog but logs them into
+  syslog.
+
+-a <architecture>
+
+  Specifies the architecture name of the client host.
+  This option is prior to the 'client_architecture' directive in
+  gfarm.conf and the GFARM_ARCHITECTURE environment variable.
+  The option is effective in Gfarm version 1.2 or later.
+
+  In the Gfarm filesystem, an architecture name is required to access
+  a file that has execution bits since the file may consist of
+  multiple binaries for each architecture.  When the client host is
+  a filesystem node, the architecture is automatically retrieved from
+  the Gfarm meta database.  Otherwise, users need to specify their
+  client hosts' architecture explicitly to access the file that has
+  execution bits.  <architecture> is typically a canonical system name
+  like sparc-sun-solaris8. (See man page of gfhost.)
+
+========
+Examples
+========
+
+*** A single user uses a single gfarmfs.
+
+  $ gfarmfs -lsub /mountpoint -o kernel_cache
+
+  If a file is never updated, you can mount a Gfarm filesystem from
+  multiple gfarmfs in this way.
+
+*** Multiple users use a single gfarmfs.
+
+  $ gfarmfs -lsub /mountpoint -o allow_other,default_permissions,kernel_cache
+
+  Please be careful a new file's owner is always the user who mount
+  the mountpoint with gfarmfs.
+
+*** Multiple users use multiple gfarmfs.
+
+  Please setup a single `gfarm_agent -m' for all gfarmfs.
+
+  $ gfarmfs -lsuF /mountpoint
+
+*** Exporting a large file from gfarmfs.
+
+  $ gfarmfs -b /mountpoint -o direct_io
+  $ dd if=/mountpoint/inputfile of=outputfile bs=64K
+  (Most applications suffer worse peformance with direct_io.)
+  (In addition, you cannot execute an executable file.)
+
+*** Importing a large file into gfarmfs.
+
+  $ gfarmfs -b /mountpoint -o direct_io
+  $ dd if=inputfile of=/mountpoint/outputfile bs=64K
+  (The gfreg command is faster than this way.)
+
+
+==============
+Known problems
+==============
+
+First, please see doc/KNOWN_PROBLEMS included in the Gfarm source
+distribution.
+
+Be careful for that Gfarm programs and gfsd sometimes hang up on some
+Linux distributions when ldap is specified in /etc/nsswitch.conf.
+
+Several limitations of Gfarm are avoided in GfarmFS-FUSE.
+
+  * stat(2) can return an exact st_size during open(2) on the same
+    gfarmfs client.
+  * Using -F option, stat(2) can return an exact st_size during open(2)
+    from another gfarmfs client.
+  * utime(2) and chmod(2) are effective during open(2) on the same
+    gfarmfs client.
+  * rename(2) and chmod(2) do not destroy metadata during open(2)
+    on the same gfarmfs client.
+  * Thanks to FUSE, applications which are using fork(2) or
+    multithread have no problem on gfarmfs.
+
+Peculiar PROBLEMS of GfarmFS-FUSE:
+
+*** `-l' option of gfarmfs is not a hardlink behavior.
+
+  The hardlink emulation creates a copy instead of a hardlink.
+  Applications which expect the hardlink behavior cannot work
+  correctly.
+
+  The hardlink behavior will be supported in the first release of the
+  Gfarm v2 branch.  GfarmFS-FUSE will support this emulation until
+  the v2 branch is released.
+
+*** close(2) cannot notice an error of gfs_pio_close().
+
+  Success of close(2) does not mean that I/O buffer and metadata
+  of Gfarm has been written to the Gfarm filesystem correctly.
+  Sometimes, there is an error.
+
+  A plan to fix this problem has not been decided yet.
+  The errors are recorded by --errlog or --syslog options.
+
+*** While open(2)ing a file which has two or more fragments,
+    chmod(2) and fchmod(2) cannot work on the same gfarmfs client.
+
+  This problem is fixed in the Gfarm v1.4.
+  (However, we don't have a plan that executable bits of the file
+   which has two or more fragments can be changed safely.)
+
+*** `svn co' command sometimes does not work on gfarmfs.
+
+  The cause is unknown.  The command sometimes fails in https access.
+
+*** du command sometimes does not work.
+
+  When there are a lot of files or directries, du command sometimes
+  fails.  You can avoid this problem by using `-o use_ino' of FUSE
+  option.
+
+  However, `-o use_ino' option has a limitation.  Please read the
+  next issue.
+
+*** Limitation of `-o use_ino' of FUSE option.
+
+  In the Gfarm v1 specification, gfs_reanme() changes an inode number
+  and the number may be different from the number which gfarmfs usually
+  returns by the FUSE mechanism.  Therefore some applications may not
+  work on gfarmfs with `-o use_ino' option.
+
+  For example, rm -rf command just after mv command does not work on
+  gfarmfs with `-o use_ino'.
+
+  In the Gfarm v2, an inode number will not be changed by gfs_rename().
+  Thus gfarmfs will use `-o use_ino' implicitly.
+
+*** mmap(2) behaves in `No such device'.
+
+  This is a limitation of FUSE.
+
+*** About open(2) with O_RDONLY | O_TRUNC.
+
+  When the file mode is 0200, the open(2) fails and gets EACCES
+  but the filesize is zero.
+
+  This is a limitation of FUSE.
+  The problem can be aboided by `-o default_permissions'
+  (FUSE option).
+
+
+=======
+contrib 
+=======
+
+*** gfarmfs-exec.sh
+
+  This is a script for mounting and unmounting a Gfarm filesystem 
+  automatically with gfarmfs when users execute their programs on
+  remote.  In fact, the script is useful to submit a job into the
+  batch system or Globus GRAM.  By default, standard output and
+  standard error output are a file on the Gfarm filesystem.  The
+  script behavior can be changed by environment variables or
+  command options.  Please see help messages (run with -h option). 
+
+*** mount.gfarmfs / umount.gfarmfs
+
+  This is a wrapper script to mount or unmount a Gfarm filesystem
+  using gfarmfs like mount command.  The default behavior of the
+  script can be changed by Environment variables.  Please see
+  usage by -h option.
+
+
+===========
+Test Suites
+===========
+
+Test programs are included in the GfarmFS-FUSE source package.  They
+check whether gfarmfs command works normally or not.  Depending on
+combination of Kernel and FUSE versions, gfarmfs may not behave
+what developers expected.  In order to avoid possible future troubles,
+users should run the test suites before their daily operation.
+
+Go the top directory of GfarmFS-FUSE source package and run this
+command for test:
+
+    ./configure && make && make check
+
+If you have any errors (shown as `NG') as follows, the environment is
+not fully known by developers.
+
+    sh ./test.sh gfarmfs
+    expected directory: ./expected/default (FUSE25_Linux)
+    OK: gfarmfs: opt="", fuse_opt=""
+    OK: gfarmfs: opt="-nlsu", fuse_opt=""
+    OK: gfarmfs: opt="-nlsu", fuse_opt="-o default_permissions"
+    OK: gfarmfs: opt="-nlsu", fuse_opt="-o attr_timeout=0"
+    OK: gfarmfs: opt="-nlsu -N2", fuse_opt=""
+    OK: gfarmfs: opt="-nlsu -b", fuse_opt=""
+    OK: gfarmfs: opt="-nlsu -b", fuse_opt="-o direct_io"
+    NG: gfarmfs: opt="-nlsu", fuse_opt="-o direct_io": different results
+
+There are the test programs and results in ./test/ directory of the
+GfarmFS-FUSE source package.  ./test/diffs/ directory has a file which
+shows differences from expected results.  ./test/output/ directory has
+a file of your results for each combinated options.  (They show what
+operation does not work on the user's environment.)
+
+Moreover, `make check' may sometimes hang.  If you have the situations,
+please report what kind of environment (combination of Kernel, FUSE
+and Gfarm versions) you failed (NG or hanging) on, and share your
+information on the Gfarm mailing list.
+
+Tested environments in development:
+
+    Fedora Core 5
+        Linux kernel version 2.6.19
+        FUSE version 2.6.3
+        Gfarm version 1.4 / Gfarm development code (SourceForge, Revision 3657)
+
+    Fedora Core 6
+        Linux kernel version 2.6.19
+        FUSE version 2.6.3
+        Gfarm development code (SourceForge, Revision 3655)
+
+    CentOS 4.4
+        Linux kernel version 2.6.9
+        FUSE version 2.6.1
+        Gfarm development code (SourceForge, Revision 3655)
+
+
+======================
+Questions / Bug report
+======================
+
+If you have any question or comment, feel free to send to email list
+or Bug Tracking System.
+
+    http://datafarm.apgrid.org/ml/
+    http://sourceforge.net/tracker/?group_id=172718
+

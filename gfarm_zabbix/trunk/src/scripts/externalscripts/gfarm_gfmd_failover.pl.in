@@ -1,0 +1,596 @@
+#! /usr/bin/perl
+#
+# Failover script for gfarm-zabbix.
+#
+# Install this script on Zabbix server host.  This script is designed
+# to be invoked by Zabbix server, as an action of a trigger.
+#
+
+use File::Basename;
+use Fcntl q(:flock);
+use Getopt::Std;
+use IO::File;
+use IO::Select;
+use IPC::Open3;
+use POSIX q(:sys_wait_h);
+use Sys::Syslog qw(:standard :macros);
+
+require '@ZABBIX_EXTSCRIPTDIR@/gfarm_gfmd_failover_common.pl';
+
+# Program name.
+use constant PROGRAM => 'gfarm_gfmd_failover.pl';
+
+# Agent program name.
+use constant AGENT_PROGRAM => 'gfarm_gfmd_failover_agent.pl';
+
+# Default path of the configuration file.
+use constant DEFAULT_CONFIGURATION_FILE => '@ZABBIX_EXTSCRIPTDIR@/gfarm_gfmd_failover.conf';
+
+# Verbose levels.
+use constant VERBOSE_BRIEF => 1;
+use constant VERBOSE_FULL  => 2;
+use constant VERBOSE_DEBUG => 3;
+
+# Dry-run flag.
+my $dry_run = 0;
+
+# Verbose level.
+my $verbose = VERBOSE_BRIEF;
+
+# Specail ID for global section in a configuration file.
+my $global_id = '__global__';
+
+# Path to a configuration file.
+my $configuration_file = DEFAULT_CONFIGURATION_FILE;
+
+# File handle for a lock file.
+my $lock_fh;
+
+#
+# Configuration defaults.
+#
+my %conf_defaults =
+    ('inspection_timeout'  => '200',
+     'promotion_timeout'   => 'never',
+     'lock_file'           => '/var/tmp/gfarm_gfmd_failover.lock',
+     'log_to_syslog'       => 'true',
+     'syslog_facility'     => 'user',
+     'ssh'                 => 'ssh',
+     'sudo'                => 'sudo',
+     'gfmd_pid_file'       => '/var/run/gfmd.pid',
+     'gfarm_bindir'        => '/usr/local/bin',
+     'gfarm_sbindir'       => '/usr/local/sbin',
+     'zabbix_extscriptdir' => '@ZABBIX_EXTSCRIPTDIR@',
+     'gfmd_journal_file'   => '/var/gfarm-metadata/journal/0000000000.gmj',
+     'gfmd_listen_address' => '0.0.0.0',
+     'gfmd_listen_port'    => '601');
+
+#
+# Get a configuration value of $key in the section $id.
+#
+sub get_configuration (*$$) {
+    my ($conf, $id, $key) = @_;
+
+    my $value = $key;
+    if (defined($conf->{$id}) && defined($conf->{$id}->{$key})) {
+	$value = $conf->{$id}->{$key};
+    } elsif (defined($conf->{$global_id}->{$key})) {
+	$value = $conf->{$global_id}->{$key};
+    }
+
+    return $value;
+}
+
+#
+# Read a configuration file.
+#
+sub read_configuration_file ($) {
+    my ($file) = @_;
+    my $conf = {$global_id => {'index' => 0}};
+
+    log_debug('begin: file=%s', $file);
+
+    while (my ($key, $value) = each(%conf_defaults)) {
+	$conf->{$global_id}->{$key} = $value;
+	log_debug('set default: key="%s", value="%s"', $key, $value);
+    }
+
+    if (!open($fh, '<', $file)) {
+	log_err('failed to open the file, %s: file=%s', $!, $file);
+    }
+
+    my $id = $global_id;
+    my $index = 1;
+    while (my $line = <$fh>) {
+	$line =~ s/^\s+//;
+	next if ($line =~ /^$/ || $line =~ /^\#/);
+	if ($line =~ /^\[(.*)\]$/) {
+	    $id = $1;
+	    log_debug('set section="%s"', $id);
+	    $conf->{$id} = {} if (!defined($conf->{$id}));
+	    $conf->{$id}->{'index'} = $index++;
+	    $conf->{$id}->{'host'} = $id;
+	} elsif ($line =~ /^([^=]*)=(.*)$/) {
+	    my ($key, $value) = ($1, $2);
+	    $key =~ s/^\s+//;
+	    $key =~ s/\s+$//;
+	    $value =~ s/^\s+//;
+	    $value =~ s/\s+$//;
+	    $conf->{$id}->{$key} = $value;
+	    log_debug('read line %d: key="%s", value="%s"', $., $key, $value);
+	} else {
+	    log_err('syntax error, line %d of %s', $., $file);
+	}
+    }
+
+    close($fh);
+    log_debug('end');
+    return $conf;
+}
+
+#
+# Return a list of section IDs in '$conf'.
+#
+sub section_keys (*) {
+    my ($conf) = @_;
+
+    my @result = ();
+    foreach my $id (sort({$conf->{$a}->{'index'} <=> $conf->{$b}->{'index'}}
+			 keys(%$conf))) {
+	push(@result, $id) if ($id ne $global_id);
+    }
+
+    return @result;
+}
+
+#
+# Get a gfmd label "ID (HOST:PORT)", used for log messages.
+#
+sub get_gfmd_label (*$) {
+    my ($conf, $id) = @_;
+
+    return sprintf("%s (%s:%s)", $id,
+		   get_configuration($conf, $id, 'host'),
+		   get_configuration($conf, $id, 'gfmd_listen_port'));
+}
+
+#
+# Get a command line which executes the agent program on the specified
+# gfmd host like ('ssh', 'HOST' ,'sudo', '/bin/gfarm_gfmd_failover_agent.pl').
+#
+sub get_agent_command_line (*$) {
+    my ($conf, $id) = @_;
+
+    my @ssh = split(/\s+/, get_configuration($conf, $id, 'ssh'));
+    my @sudo = split(/\s+/, get_configuration($conf, $id, 'sudo'));
+    my $host
+        = get_configuration($conf, $id, 'host');
+    my $zabbix_extscriptdir
+        = get_configuration($conf, $id, 'zabbix_extscriptdir');
+    my $gfmd_pid_file
+        = get_configuration($conf, $id, 'gfmd_pid_file');
+    my $gfarm_bindir
+        = get_configuration($conf, $id, 'gfarm_bindir');
+    my $gfmd_journal_file
+        = get_configuration($conf, $id, 'gfmd_journal_file');
+    my $gfmd_listen_address
+        = get_configuration($conf, $id, 'gfmd_listen_address');
+    my $gfmd_listen_port
+        = get_configuration($conf, $id, 'gfmd_listen_port');
+    my $syslog_facility
+        = get_configuration($conf, $id, 'syslog_facility');
+
+    return (@ssh, $host, @sudo,
+            sprintf('%s/%s', $zabbix_extscriptdir, AGENT_PROGRAM),
+            "gfmd_pid_file=$gfmd_pid_file",
+            "gfarm_bindir=$gfarm_bindir",
+            "gfmd_journal_file=$gfmd_journal_file",
+            "gfmd_listen_address=$gfmd_listen_address",
+            "gfmd_listen_port=$gfmd_listen_port",
+            "syslog_facility=$syslog_facility");
+}
+
+#
+# Create an object to record the current status of gfmds.
+#
+sub create_gfmd_entries ($) {
+    my ($conf) = @_;
+
+    my $gfmds = {};
+    my $index = 0;
+    foreach my $id (section_keys($conf)) {
+        next if (defined($gfmds->{$id}));
+        $gfmds->{$id} = {};
+        $gfmds->{$id}->{'index'}        = $index++;
+        $gfmds->{$id}->{'is_listening'} = 0;
+        $gfmds->{$id}->{'is_running'}   = 0;
+        $gfmds->{$id}->{'max_seqno'}    = 0;
+        $gfmds->{$id}->{'error'}        = 0;
+    }
+
+    return $gfmds;
+}
+
+#
+# Return 1 if a master gfmd is running.
+#
+sub master_gfmd_is_running (*) {
+    my ($gfmds) = @_;
+
+    foreach my $id (keys(%$gfmds)) {
+	return 1 if ($gfmds->{$id}->{is_listening});
+    }
+
+    return 0;
+}
+
+#
+# Return 1 if one or more errored gfmds exist.
+#
+sub errored_gfmd (*) {
+    my ($gfmds) = @_;
+
+    foreach my $id (keys(%$gfmds)) {
+	return 1 if ($gfmds->{$id}->{error});
+    }
+
+    return 0;
+}
+
+#
+# Parse a response from 'gfarm_gfmd_failover_agent.pl'.
+#
+sub parse_agent_response (**$$) {
+    my ($conf, $gfmds, $id, $line) = @_;
+
+    log_debug('begin: gfmd=%s, line="%s"', $id, $line);
+
+    $line =~ s/[\r\n]+//;
+    for my $field (split(/\s+/, $line)) {
+        if ($field =~ /^is_running=(.*)$/) {
+            $gfmds->{$id}->{'is_running'} = $1;
+        } elsif ($field =~ /^is_listening=(.*)$/) {
+            my $is_listening = $1;
+            $gfmds->{$id}->{'is_listening'} = $1;
+        } elsif ($field =~ /^max_seqno=(.*)$/) {
+            my $max_seqno = $1;
+            $gfmds->{$id}->{'max_seqno'} = $1;
+        }
+    }
+
+    log_notice('get information from an agent: gfmd=%s, '
+               . 'is_running=%d, is_listening=%d, max_seqno=%d',
+               get_gfmd_label($conf, $id),
+               $gfmds->{$id}->{'is_running'},
+               $gfmds->{$id}->{'is_listening'},
+               $gfmds->{$id}->{'max_seqno'});
+    log_debug('end');
+}
+
+#
+# Get status of all gfmd servers.
+#
+sub get_gfmds_status (*$) {
+    my ($conf, $limit_time) = @_;
+
+    log_debug('begin');
+
+    my $gfmds = create_gfmd_entries($conf);
+    my $pids = {};
+    my $whs = {};
+    my $rhs = {};
+    my $sel = IO::Select->new();
+
+    foreach my $id (section_keys($conf)) {
+        my ($pid, $wh, $rh);
+        my @command = get_agent_command_line($conf, $id);
+        eval {
+            $pid = open3($wh, $rh, 0, @command);
+            log_debug('execute: command=%s', join(' ', @command));
+        };
+        $pids->{$id} = $pid;
+        $whs->{$id} = $wh;
+        $rhs->{$id} = $rh;
+        $sel->add($rh);
+    }
+
+    while ($sel->count() > 0) {
+	my $timeout = undef;
+	if ($limit_time ne 'none') {
+	    $timeout = $limit_time - time();
+	    last if ($timeout < 0);
+	}
+
+	my @ready = $sel->can_read($timeout);
+	if (@ready == 0 && defined($timeout)) {
+	    log_notice('timeout');
+	    last;
+	}
+        foreach my $rh (@ready) {
+            $sel->remove(fileno($rh));
+            my $line = <$rh>;
+            next if (!defined($line));
+            chomp($line);
+            foreach my $id (keys(%$rhs)) {
+                if ($rhs->{$id} == $rh) {
+                    log_notice('receive a response: gfmd=%s, line="%s"',
+                               get_gfmd_label($conf, $id), $line);
+                    parse_agent_response($conf, $gfmds, $id, $line);
+                    $whs->{$id}->close();
+                    $rhs->{$id}->close();
+                    delete($whs->{$id});
+                    delete($rhs->{$id});
+                    last;
+                }
+            }
+        }
+    }
+
+    foreach my $id (keys(%$whs)) {
+        $whs->{$id}->close();
+        $rhs->{$id}->close();
+        $gfmds->{$id}->{'error'} = 1;
+        kill('TERM', $pids->{$id});
+        log_debug('not respond: gfmd=%s', get_gfmd_label($conf, $id));
+    }
+    foreach my $pid (values(%pids)) {
+        waitpid($pid, 0);
+    }
+
+    log_debug('end');
+    return $gfmds;
+}
+
+#
+# Determine which gfmd server should become a master.
+#
+sub determine_new_master_gfmd (**) {
+    my ($conf, $gfmds) = @_;
+
+    log_debug('begin');
+    my $latest_seqno = 1;
+    my $new_master_id;
+    my $new_master_index = int($gfmds) + 1;
+
+    if (!master_gfmd_is_running($gfmds)) {
+	foreach my $id (keys(%$gfmds)) {
+	    if ($gfmds->{$id}->{'max_seqno'} > $latest_seqno) {
+		$latest_seqno = $gfmds->{$id}->{'max_seqno'};
+	    }
+	}
+
+	foreach my $id (keys(%$gfmds)) {
+	    next if (!$gfmds->{$id}->{'is_running'});
+	    if ($gfmds->{$id}->{'max_seqno'} == $latest_seqno &&
+		$gfmds->{$id}->{'index'} < $new_master_index) {
+		$new_master_id = $id;
+		$new_master_index = $gfmds->{$id}->{'index'};
+	    }
+	}
+    }
+
+    if (defined($new_master_id)) {
+	log_notice('choose new master gfmd: gfmd=%s',
+		   get_gfmd_label($conf, $new_master_id));
+    } else {
+	log_notice('no suitable slave for new master gfmd');
+    }
+    log_debug('end');
+    return $new_master_id;
+}
+
+#
+# Promote a slave gfmd to a master.
+#
+sub failover_gfmd (**$$) {
+    my ($conf, $gfmds, $id, $limit_time) = @_;
+    log_debug('begin: gfmd=%s', $id);
+
+    my ($pid, $wh, $rh);
+    my @command = get_agent_command_line($conf, $id);
+    push(@command, 'promote');
+    eval {
+        $pid = open3($wh, $rh, 0, @command);
+        log_debug('execute: command=%s', join(' ', @command));
+    };
+
+    log_notice('start promotion: gfmd=%s', get_gfmd_label($conf, $id));
+
+    my $result = 0;
+    for (;;) {
+        my $sel = IO::Select->new($rh);
+        my $timeout = undef;
+        if ($limit_time ne 'none') {
+            $timeout = $limit_time - time();
+            last if ($timeout < 0);
+        }
+
+        my @ready = $sel->can_read($timeout);
+        if (@ready == 0 && defined($timeout)) {
+            log_notice('timeout');
+            last;
+        }
+        my $line = <$rh>;
+        last if (!defined($line));
+        chomp($line);
+        log_notice('receive a response: gfmd=%s, line="%s"',
+                   get_gfmd_label($conf, $id), $line);
+        $result = 1 if ($line eq 'complete');
+        last;
+    }
+
+    kill('TERM', $pid) if (!$result);
+    $wh->close() if (defined($wh));
+    $rh->close() if (defined($rh));
+    waitpid($pid, 0) if (defined($pid));
+
+    if ($result) {
+        log_notice('end promotion: gfmd=%s', get_gfmd_label($conf, $id));
+    } else {
+        log_notice('promotion failed: gfmd=%s', get_gfmd_label($conf, $id));
+    }
+    log_debug('end: result=%d', $result);
+    return $result;
+}
+
+#
+# Print status of all gfmd servers.
+#
+sub print_all_gfmsds_status (**) {
+    my ($conf, $gfmds) = @_;
+
+    log_debug('begin');
+    $master_gfmd_is_running = master_gfmd_is_running($gfmds);
+    printf("%-3s  %-6s  %-20s  HOST\n",
+	   'RUN', 'LISTEN', 'MAX_SEQNO', 'ID');
+
+    foreach my $id (section_keys($conf)) {
+	if ($gfmds->{$id}->{'error'}) {
+	    printf('%-3s  ', '***');
+	    printf('%-6s  ', '***');
+	    printf('%20s  ', '***');
+	} else {
+	    printf('%-3s  ', $gfmds->{$id}->{'is_running'}   ? 'yes' : '-');
+	    printf('%-6s  ', $gfmds->{$id}->{'is_listening'} ? 'yes' : '-');
+	    if ($gfmds->{$id}->{'max_seqno'} > 0) {
+		printf('%20d  ', $gfmds->{$id}->{'max_seqno'});
+	    } else {
+		printf('%20s  ', '-');
+	    }
+	}
+	printf("%-s\n", get_gfmd_label($conf, $id));
+    }
+
+    print("\n");
+    log_debug('end');
+}
+
+#
+# Print help message.
+#
+sub print_help () {
+    warn('Usage: ' . PROGRAM . " [option]\n");
+    warn("option:\n");
+    warn("\t-f <file> ... Specify configuration file\n");
+    warn("\t              (default: " . DEFAULT_CONFIGURATION_FILE . ")\n");
+    warn("\t-d        ... Print information for debugging\n");
+    warn("\t-t        ... Don't perform failover actually (imply '-v')\n");
+    warn("\t-v        ... Show verbose messages\n");
+    warn("\t-?        ... Show this message, then exit\n");
+}
+
+#
+# Parse command line arguments.
+#
+sub parse_command_arguments () {
+    log_debug('begin');
+
+    my %options;
+    getopts('f:dtv?', \%options) or exit(1);
+    if (defined($options{'?'})) {
+	print_help();
+	exit(0);
+    }
+    $verbose = VERBOSE_FULL  if (defined($options{'v'}));
+    $verbose = VERBOSE_DEBUG if (defined($options{'d'}));
+    $dry_run = 1 if (defined($options{'t'}));
+    $configuration_file = $options{'f'} if (defined($options{'f'}));
+    log_debug('set configuration file: file=%s', $configuration_file);
+
+    log_debug('end');
+}
+
+#
+# Initialization.
+#
+sub initialize (*) {
+    my ($conf) = @_;
+
+    my $log_to_syslog = get_configuration($conf, $global_id, 'log_to_syslog');
+    my $syslog_facility = $conf->{$global_id}->{'syslog_facility'};
+    my $syslog_level;
+    my $stderr_level;
+
+    if ($verbose == VERBOSE_DEBUG) {
+        $stderr_level = 'debug';
+    } elsif ($verbose == VERBOSE_FULL) {
+        $stderr_level = 'notice';
+    } else {
+        $stderr_level = 'never';
+    }
+    if ($log_to_syslog !~ /^(true|yes)$/i) {
+        $syslog_level = 'notice';
+    } else {
+        $syslog_level = 'never';
+    }
+    log_initialize($stderr_level, $syslog_level, $syslog_facility);
+
+    log_notice('start');
+    my $lock_file = get_configuration($conf, $global_id, 'lock_file');
+    $lock_fh = lock_file($lock_file);
+}
+
+#
+# Finalization.
+#
+sub finalize (*) {
+    my ($conf) = @_;
+
+    log_notice('end');
+    log_finalize();
+    unlock_file($lock_fh);
+}
+
+#
+# Get a limit-time.
+#
+sub get_limit_time ($) {
+    my ($timeout) = @_;
+
+    my $limit_time;
+    if ($timeout eq 'never') {
+        $limit_time = 'none';
+    } else {
+        $limit_time = time() + $timeout;
+    }
+
+    return $limit_time;
+}
+
+#
+# Main.
+#
+parse_command_arguments();
+my $conf = read_configuration_file($configuration_file);
+initialize($conf);
+
+my $limit_time = get_limit_time(get_configuration($conf, $global_id,
+                                                  'inspection_timeout'));
+my $gfmds = get_gfmds_status($conf, $limit_time);
+if ($verbose >= VERBOSE_FULL || $dry_run) {
+    print_all_gfmsds_status($conf, $gfmds)
+}
+if (master_gfmd_is_running($gfmds)) {
+    print("master gfmd is running\n") if ($dry_run);
+    exit(0);
+}
+if (errored_gfmd($gfmds)) {
+    log_notice('an error occurred, give up failover');
+    printf("an error occurred, no master gfmd candidate\n") if ($dry_run);
+} else {
+    $limit_time = get_limit_time(get_configuration($conf, $global_id,
+                                                   'promotion_timeout'));
+    my $new_master_id = determine_new_master_gfmd($conf, $gfmds);
+    if (!defined($new_master_id)) {
+	log_notice('no master gfmd candidate');
+	print("no master gfmd candidate\n") if ($dry_run);
+    } elsif ($dry_run) {
+	printf("suitable candidate for master gfmd is %s\n",
+	       get_gfmd_label($conf, $new_master_id));
+    } else {
+	failover_gfmd($conf, $gfmds, $new_master_id, $limit_time);
+    }
+}
+
+finalize($conf);
+exit(0);

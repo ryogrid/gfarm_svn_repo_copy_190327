@@ -1,0 +1,114 @@
+Release note for Gfarm Zabbix plugin 3.0.0
+==========================================
+
+[2015.9.30]
+
+Updated feature
+* restructure the templates
+  - the templates of this version has no conflict with "Template OS Linux"
+    so that a host can be linked with both "Template OS Linux" and Gfarm
+    Zabbix templates [sf.net ticket #911]
+  - Template_Gfarm_zabbix are no longer provided
+
+Release note for Gfarm Zabbix plugin 2.2.0
+==========================================
+
+[2015.7.24]
+
+Updated feature
+* improve the failover script
+  - it gets status of gfmd servers in parallel [sf.net ticket #858]
+  - the configuration parameter 'inspection_timeout' is added
+    [sf.net ticket #858]
+
+* improve "Low free memory on server {HOSTNAME}" trigger.
+  it uses vm.memory.size[available] instead of vm.memory.size[free],
+  vm.memory.size[cached] and vm.memory.size[buffers] to detect the status
+  more accurately [sf.net ticket #899]
+
+Release note for Gfarm Zabbix plugin 2.1.0
+==========================================
+
+[2015.3.25]
+
+Updated feature
+* improve the failover script
+  - it gives up promotion of a slave metadata server when it may
+    cause inconsistency of metadata among the servers
+    [sf.net ticket #825], [sf.net ticket #837]
+  - it retries to execute 'gfjournal -m' on a metadata server via SSH
+    [sf.net ticket #834]
+* the failover script supports CentOS 7 [sf.net ticket #826]
+* add a trigger to the template 'Templete_Gfarm represent_client_nodep',
+  which alerts administrators to multiple master metadata servers
+  running [sf.net ticket #778]
+* do not alert administrators to successive triggers
+  [sf.net ticket #781], [sf.net ticket #823], [sf.net ticket #825],
+
+Documentation
+* explain firewall setting of gfarm-zabbix
+  [sf.net ticket #840]
+* explain how to install gfarm-zabbix on CentOS 7
+  [sf.net ticket #791]
+* explain how the failover script chooses new master metadata server
+
+Bug fix
+* whitespaces in 'gfarm_gfmd_failover.conf' are not preserved correctly
+  [sf.net ticket #833]
+
+Release note for Gfarm Zabbix plugin 2.0.0
+==========================================
+
+[2014.10.2]
+
+Updated feature
+* fully revise the templates and external scripts to suppress dupliate
+  alerts and to introduce template macros for trigger threshold
+  [sf.net ticket #770]
+* update documents for installation, operation, and troubleshooting
+* zabbix 2.2 support
+
+Release note for Gfarm Zabbix plugin 1.1.0
+==========================================
+
+[2013.5.5]
+
+Updated feature
+* support multiple Gfarm servers running on the same node [sf.net trac
+  #684]
+
+Bug fix
+* failover script should be more robust [sf.net trac #585]
+* gfarm2.conf is not updated dynamically [sf.net trac #686]
+
+Release note for Gfarm Zabbix plugin 1.0.3
+==========================================
+
+[2013.1.15]
+
+Bug fix
+* update the installation manual
+
+Release note for Gfarm Zabbix plugin 1.0.2
+==========================================
+
+[2012.12.3]
+
+New feature
+* install script
+
+Updated feature
+* CentOS 6 (rsyslog) support
+
+Bug fix
+* alart is dismissed after one hour
+* update the installation manual
+
+Release note for Gfarm Zabbix plugin 1.0.1
+==========================================
+
+[2012.8.24]
+
+Bug fix
+* failover script fails just after the fresh installation
+* journal file check script is missing

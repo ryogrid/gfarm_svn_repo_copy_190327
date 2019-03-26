@@ -1,0 +1,1 @@
+fusexmp_fh: fuse_opt="-o default_permissions"

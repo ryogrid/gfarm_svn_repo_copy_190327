@@ -1,0 +1,394 @@
+#! /usr/bin/perl
+#
+# Failover script for gfarm-zabbix.
+#
+# Install this script on every gfmd servers.  This script is designed
+# to be invoked by 'gfarm_gfmd_failover.pl' via SSH.
+#
+
+use File::Basename;
+use Fcntl q(:flock);
+use IO::File;
+use IPC::Open3;
+use POSIX q(:sys_wait_h);
+use Sys::Syslog qw(:standard :macros);
+
+require '@ZABBIX_EXTSCRIPTDIR@/gfarm_gfmd_failover_common.pl';
+
+# Program name.
+use constant PROGRAM => 'gfarm_gfmd_failover_agent.pl';
+
+# Command modes.
+use constant MODE_STATUS  => 0;
+use constant MODE_PROMOTE => 1;
+
+# Path to 'netstat' command.
+use constant NETSTAT_COMMAND => '/bin/netstat';
+
+# Path to 'ss' command.
+use constant SS_COMMAND => '/usr/sbin/ss';
+
+# Path to the default pid file of gfmd.
+use constant DEFAULT_PID_FILE => '/var/run/gfmd.pid';
+
+# Default path to 'gfjournal' command.
+use constant DEFAULT_GFJOURNAL_COMMAND => '/usr/local/bin/gfjournal';
+
+# Default path to the journal file of gfmd.
+use constant DEFAULT_JOURNAL_FILE
+    => '/var/gfarm-metadata/journal/0000000000.gmj';
+
+# Default listen address of gfmd.
+use constant DEFAULT_LISTEN_ADDRESS => '0.0.0.0';
+
+# Default listen port number of gfmd.
+use constant DEFAULT_LISTEN_PORT => 601;
+
+# Default syslog facility.
+use constant DEFAULT_SYSLOG_FACILITY => 'user';
+
+# Retry interval of 'gfjurnal'.
+use constant GFJOURNAL_RETRY_INTERVAL => 5;
+
+# Interval for checking promotion status.
+use constant PROMPTION_CHECK_INTERVAL => 20;
+
+# Debug flag.
+my $debug = 0;
+
+#
+# Execute 'netstat' command to check if gfmd listens on the specified port.
+#
+sub gfmd_is_listening_netstat ($$) {
+    my ($address, $port) = @_;
+    log_debug('begin: address=%s, port=%d', $address, $port);
+
+    my $is_listening = 0;
+    my @command = (NETSTAT_COMMAND, '-nlt');
+    my ($pid, $wh, $rh);
+    eval {
+	$pid = open3($wh, $rh, 0, @command);
+	while (my $line = <$rh>) {
+	    my @fields = split(/\s+/, $line);
+	    if ($fields[3] eq "$address:$port") {
+		$is_listening = 1;
+		last;
+	    }
+	}
+    };
+    $wh->close() if (defined($wh));
+    $rh->close() if (defined($rh));
+
+    waitpid($pid, 0);
+    my $exitcode = $? >> 8;
+    if ($exitcode != 0) {
+	log_notice('the command exits with an error: command="%s", code=%d',
+		   join(' ', @command), $exitcode);
+    } elsif ($is_listening) {
+	log_notice('gfmd listens on the port: port=%s:%d', $address, $port);
+    } else {
+	log_notice('gfmd does not listen on the port: port=%s:%d',
+		   $address, $port);
+    }
+
+    log_debug('end: is_listening=%d', $is_listening);
+    return $is_listening;
+}
+
+#
+# Execute 'ss' command to check if gfmd listens on the specified port.
+#
+sub gfmd_is_listening_ss ($$) {
+    my ($address, $port) = @_;
+    log_debug('begin: address=%s, port=%s', $address, $port);
+
+    my $is_listening = 0;
+    my @command = (SS_COMMAND, '-nlt');
+    my ($pid, $wh, $rh);
+    eval {
+	$pid = open3($wh, $rh, 0, @command);
+	while (my $line = <$rh>) {
+	    my @fields = split(/\s+/, $line);
+	    if ($address eq '0.0.0.0') {
+		if ($fields[3] eq "*:$port") {
+		    $is_listening = 1;
+		    last;
+		}
+	    } else {
+		if ($fields[3] eq "$address:$port") {
+		    $is_listening = 1;
+		    last;
+		}
+	    }
+	}
+    };
+    $wh->close() if (defined($wh));
+    $rh->close() if (defined($rh));
+
+    waitpid($pid, 0);
+    my $exitcode = $? >> 8;
+    if ($exitcode != 0) {
+	log_notice('the command exits with an error: command="%s", code=%d',
+		   join(' ', @command), $exitcode);
+    } elsif ($is_listening) {
+	log_notice('gfmd listens on the port: port=%s:%d', $address, $port);
+    } else {
+	log_notice('gfmd does not listen on the port: port=%s:%d',
+		   $address, $port);
+    }
+
+    log_debug('end: is_listening=%d', $is_listening);
+    return $is_listening;
+}
+
+#
+# Check if gfmd listens on the specified port.
+#
+sub gfmd_is_listening ($$) {
+    my ($address, $port) = @_;
+    log_debug('begin: address=%s, port=%s', $address, $port);
+
+    my $is_listening = 0;
+    if (-x NETSTAT_COMMAND) {
+        $is_listening = gfmd_is_listening_netstat($address, $port);
+    } elsif (-x SS_COMMAND) {
+        $is_listening = gfmd_is_listening_ss($address, $port);
+    } else {
+	log_err('neither "netstat" or "ss" command found');
+    }
+
+    log_debug('end: is_listening=%d', $is_listening);
+    return $is_listening;
+}
+
+#
+# Read a pid file of gfmd.
+#
+sub read_gfmd_pid_file ($) {
+    my ($pid_file) = @_;
+    log_debug('begin: pid_file=%s', $pid_file);
+
+    my $pid = 0;
+    open(my $rh, '<:bytes', $pid_file);
+    if (defined($rh)) {
+        my $line = <$rh>;
+        if (defined($line)) {
+            chomp($line);
+            if ($line !~ /^(0|[1-9][0-9]*)$/) {
+                log_notice('invalid gfmd pid: file=%s, pid=%s',
+                           $pid_file, $line);
+            } else {
+                $pid = int($line);
+                log_notice('get gfmd pid from the pid file: file=%s, pid=%d',
+                           $pid_file, $pid);
+            }
+        } else {
+            log_notice('no pid is written in the pid file: file=%s',
+                       $pid_file);
+        }
+        $rh->close();
+    } else {
+	log_notice('failed to open the file, %s: %s', $!, $pid_file);
+    }
+
+    log_debug('end: pid=%d', $pid);
+    return $pid;
+}
+
+#
+# Execute 'ps' command to check if gfmd process really exists.
+#
+sub gfmd_process_exists ($) {
+    my ($gfmd_pid) = @_;
+    log_debug('begin: gfmd_pid=%d', $gfmd_pid);
+
+    my $exists = 0;
+    my @command = ('ps', 'axww', '-o', 'pid,command');
+    my ($pid, $wh, $rh);
+    eval {
+	$pid = open3($wh, $rh, 0, @command);
+	while (my $line = <$rh>) {
+	    chomp($line);
+	    $line =~ s/^\s+//;
+	    my @fields = split(/\s+/, $line);
+	    if ($fields[0] eq $gfmd_pid && basename($fields[1]) eq 'gfmd') {
+		$exists = 1;
+		last;
+	    }
+	}
+	$rh->close();
+    };
+    $wh->close() if (defined($wh));
+    $rh->close() if (defined($rh));
+
+    waitpid($pid, 0);
+    my $exitcode = $? >> 8;
+    if ($exitcode != 0) {
+	log_notice('the command exits with an error: command="%s", code=%d',
+		   join(' ', @command), $exitcode);
+        $exists = 0;
+    } elsif ($exists) {
+	log_notice('gfmd process exists: pid=%d', $pid);
+    } else {
+	log_notice('gfmd process not exists');
+    }
+
+    log_debug('end: exists=%d', $exists);
+    return $exists;
+}
+
+#
+# Check if gfmd is currently running.
+#
+sub gfmd_is_running ($) {
+    my ($pid_file) = @_;
+    log_debug('begin: pid_file=%s', $pid_file);
+
+    my $is_running = 0;
+    my $pid = read_gfmd_pid_file($pid_file);
+    $is_running = gfmd_process_exists($pid) if ($pid > 0);
+
+    log_debug('end: is_running=%d', $is_running);
+    return $is_running;
+}
+
+#
+# Execute 'gfjournal -m' to get the maximum sequence number written in
+# the specified journal file.
+#
+sub get_gfmd_max_seqno ($$) {
+    my ($gfjournal, $journal_file) = @_;
+    log_debug('begin: gfjournal=%s, journal_file=%s',
+              $gfjournal, $journal_file);
+
+    my $max_seqno = 0;
+    my @command = ($gfjournal, '-m', $journal_file);
+    my $exec_count = 0;
+    while ($max_seqno <= 0) {
+        sleep(GFJOURNAL_RETRY_INTERVAL) if ($exec_count++ > 0);
+	my ($pid, $wh, $rh);
+	my $error = 0;
+	eval {
+	    $pid = open3($wh, $rh, 0, @command);
+	    my $line = <$rh>;
+	    if (defined($line) && $line ne '') {
+		chomp($line);
+		if ($line =~ /<err>/) {
+		    log_notice('gfjournal reports an error: %s', $line);
+		    $error = 1;
+		} elsif ($line !~ /^(0|[1-9][0-9]*)$/) {
+		    log_notice('invalid max_seqno: max_seqno="%s"', $line);
+		} else {
+		    $max_seqno = int($line);
+		    if ($max_seqno > 0) {
+			log_notice('get max_seqno: max_seqno=%d', $max_seqno);
+		    } else {
+			log_notice('invalid max_seqno: max_seqno=%d (<= 0)',
+				   $max_seqno);
+		    }
+		}
+	    }
+	};
+	$wh->close() if (defined($wh));
+	$rh->close() if (defined($rh));
+
+	waitpid($pid, 0);
+	my $exitcode = $? >> 8;
+	if ($exitcode != 0) {
+	    log_notice('the command exits with an error: '
+		       . 'command="%s", code=%d',
+		       join(' ', @command), $exitcode);
+	    last;
+	} elsif ($error) {
+	    last;
+	}
+    }
+
+    log_debug('end: max_seqno=%d', $max_seqno);
+    return $max_seqno;
+}
+
+#
+# Promote gfmd.
+#
+sub promote_gfmd ($$$) {
+    my ($gfmd_pid, $address, $port) = @_;
+    log_debug('begin: gfmd_pid=%d, address=%s, port=%d',
+              $gfmd_pid, $address, $port);
+
+    my $result = 1;
+    if (kill('USR1' => $gfmd_pid) > 0) {
+        log_notice('send SIGUSR1 to gfmd: pid=%d', $gfmd_pid);
+        while (!gfmd_is_listening($address, $port)) {
+            sleep(PROMPTION_CHECK_INTERVAL);
+        }
+        print("complete\n");
+    } else {
+        log_notice('failed to send SIGUSR1 to gfmd: pid=%d', $gfmd_pid);
+        $result = 0;
+    }
+
+    log_debug('end');
+    return $result;
+}
+
+#
+# Parse command line arguments.
+#
+my $pid_file        = DEFAULT_PID_FILE;
+my $gfjournal       = DEFAULT_GFJOURNAL_COMMAND;
+my $journal_file    = DEFAULT_JOURNAL_FILE;
+my $listen_address  = DEFAULT_LISTEN_ADDRESS;
+my $listen_port     = DEFAULT_LISTEN_PORT;
+my $syslog_facility = DEFAULT_SYSLOG_FACILITY;
+my $mode            = MODE_STATUS;
+
+foreach my $arg (@ARGV) {
+    if ($arg =~ /^gfmd_pid_file=(.*)$/) {
+        $pid_file = $1;
+    } elsif ($arg =~ /^gfarm_bindir=(.*)$/) {
+        $gfjournal = sprintf('%s/gfjournal', $1);
+    } elsif ($arg =~ /^gfmd_journal_file=(.*)$/) {
+        $journal_file = $1;
+    } elsif ($arg =~ /^gfmd_listen_address=(.*)$/) {
+        $listen_address = $1;
+    } elsif ($arg =~ /^gfmd_listen_port=(.*)$/) {
+        $listen_port = $1;
+    } elsif ($arg =~ /^syslog_facility=(.*)$/) {
+        $syslog_facility = $1;
+    } elsif ($arg =~ /^promote$/) {
+        $mode = MODE_PROMOTE;
+    } elsif ($arg =~ /^debug$/) {
+        # Note that the failover script never specifies this argument.
+        # This argument is used only when this script is executed from
+        # a command line by a developer.
+        $debug = 1;
+    }
+}
+
+#
+# Main.
+#
+if ($debug) {
+    log_initialize('debug', 'notice', $syslog_facility);
+} else {
+    log_initialize('never', 'notice', $syslog_facility);
+}
+
+if ($mode == MODE_STATUS) {
+    my $is_running = gfmd_is_running($pid_file);
+    my $is_listening = 0;
+    my $max_seqno = 0;
+    if ($is_running) {
+        $is_listening = gfmd_is_listening($listen_address, $listen_port);
+    }
+    $max_seqno = get_gfmd_max_seqno($gfjournal, $journal_file);
+    printf("is_running=%d is_listening=%d max_seqno=%d\n",
+           $is_running, $is_listening, $max_seqno);
+    exit(0);
+} else {
+    my $gfmd_pid = read_gfmd_pid_file($pid_file);
+    exit(1) if ($gfmd_pid <= 0);
+    exit(1) if (!gfmd_process_exists($gfmd_pid));
+    exit(1) if (!promote_gfmd($gfmd_pid, $listen_address, $listen_port));
+}

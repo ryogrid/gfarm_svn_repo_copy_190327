@@ -1,0 +1,12 @@
+fusexmp_fh: fuse_opt="-o default_permissions"
+NG [ftruncate(0) mode=0400] test_ftruncate(): ftruncate: Permission denied
+NG [ftruncate(0) mode=0000] test_ftruncate(): ftruncate: Permission denied
+NG [open(-, O_RDONLY | O_CREAT, 0200)] do_test_open(): open: Permission denied
+NG [open(-, O_RDONLY | O_CREAT, 0000)] do_test_open(): open: Permission denied
+NG [open(-, O_WRONLY | O_CREAT, 0400)] do_test_open(): open: Permission denied
+NG [open(-, O_WRONLY | O_CREAT, 0000)] do_test_open(): open: Permission denied
+NG [open(-, O_RDWR | O_CREAT, 0400)] do_test_open(): open: Permission denied
+NG [open(-, O_RDWR | O_CREAT, 0200)] do_test_open(): open: Permission denied
+NG [open(-, O_RDWR | O_CREAT, 0000)] do_test_open(): open: Permission denied
+NG [open(-, O_RDWR | O_CREAT | O_EXCL, 0000)] do_test_open(): open: Permission denied
+10 tests failed

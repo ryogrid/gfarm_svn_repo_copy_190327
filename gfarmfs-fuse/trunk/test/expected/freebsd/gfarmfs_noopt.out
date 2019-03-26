@@ -1,0 +1,8 @@
+gfarmfs: opt="", fuse_opt=""
+NG [symlink] test_symlink(): symlink: Operation not permitted
+NG [link] test_link(): link: Operation not permitted
+NG [mkfifo] test_mkfifo(): mkfifo: Operation not permitted
+NG [mkdir] check_nlink(): nlink 32000 instead of 2
+NG [ftruncate(0) mode=0400] test_ftruncate(): ftruncate: Permission denied
+NG [ftruncate(0) mode=0000] test_ftruncate(): ftruncate: Permission denied
+6 tests failed

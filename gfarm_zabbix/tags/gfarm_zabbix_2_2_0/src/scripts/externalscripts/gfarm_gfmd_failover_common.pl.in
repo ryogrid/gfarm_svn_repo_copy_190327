@@ -1,0 +1,167 @@
+#! /usr/bin/perl
+#
+# Failover script for gfarm-zabbix (common part).
+#
+# Install this script on Zabbix server and agent hosts.
+#
+
+use Fcntl q(:flock);
+use IO::File;
+use Sys::Syslog qw(:standard :macros);
+
+# Mappings of log level names to integral values.
+use constant LOG_LEVELS => {'debug'   => 0,
+                            'info'    => 1,
+                            'notice'  => 2,
+                            'warning' => 3,
+                            'err'     => 4,
+                            'crit'    => 5,
+                            'alert'   => 6,
+                            'emerg'   => 7,
+                            'never'   => 8};
+
+# Log level (output to stderr)
+my $stderr_log_level = LOG_LEVELS->{'notice'};
+
+# Log level (output to syslog)
+my $syslog_log_level = LOG_LEVELS->{'notice'};
+
+#
+# Initialize for log output.
+#
+sub log_initialize ($$;$) {
+    my ($stderr_level, $syslog_level, $facility) = @_;
+
+    my %facility_maps =
+	('kern'     => LOG_KERN,
+	 'user'     => LOG_USER,
+	 'mail'     => LOG_MAIL,
+	 'daemon'   => LOG_DAEMON,
+	 'auth'     => LOG_AUTH,
+	 'syslog'   => LOG_SYSLOG,
+	 'lpr'      => LOG_LPR,
+	 'news'     => LOG_NEWS,
+	 'uucp'     => LOG_UUCP,
+	 'cron'     => LOG_CRON,
+	 'authpriv' => LOG_AUTHPRIV,
+	 'ftp'      => LOG_FTP,
+	 'local0'   => LOG_LOCAL0,
+	 'local1'   => LOG_LOCAL1,
+	 'local2'   => LOG_LOCAL2,
+	 'local3'   => LOG_LOCAL3,
+	 'local4'   => LOG_LOCAL4,
+	 'local5'   => LOG_LOCAL5,
+	 'local6'   => LOG_LOCAL6,
+	 'local7'   => LOG_LOCAL7);
+
+    if (defined(LOG_LEVELS->{$stderr_level})) {
+        $stderr_log_level = LOG_LEVELS->{$stderr_level};
+    } else {
+        printf(STDERR "invalid stderr log level: level=\"%s\"\n",
+               $stderr_level);
+    }
+
+    if (defined(LOG_LEVELS->{$syslog_level})) {
+        $syslog_log_level = LOG_LEVELS->{$syslog_level};
+    } else {
+        printf(STDERR "invalid syslog log level: level=\"%s\"\n",
+               $syslog_level);
+    }
+
+    if ($syslog_log_level ne 'never') {
+        my $facility_value = $facility_maps{$facility};
+        if (!defined($facility_value) || $facility_value == 0) {
+            printf(STDERR "invalid syslog facility: facility=%s\n", $facility);
+            $facility_value = LOG_USER;
+        }
+        openlog(PROGRAM, 'ndelay,pid', $facility_value);
+    }
+}
+
+#
+# Fialize for log output.
+#
+sub log_finalize () {
+    closelog() if ($syslog_log_level ne 'never');
+}
+
+#
+# Output a debug message if the debug flag is enabled.
+#
+sub log_debug ($;@) {
+    my $message = shift;
+
+    if (LOG_LEVELS->{'debug'} >= $stderr_log_level) {
+        printf(STDERR '%s: debug: %s: ' . $message . "\n",
+               PROGRAM, (caller(1))[3], @_);
+    }
+    if (LOG_LEVELS->{'debug'} >= $syslog_log_level) {
+        syslog(LOG_DEBUG, $message, @_);
+    }
+}
+
+#
+# Output a notice message.
+#
+sub log_notice ($;@) {
+    my $message = shift;
+
+    if (LOG_LEVELS->{'notice'} >= $stderr_log_level) {
+	printf(STDERR "%s: notice: $message\n", PROGRAM, @_);
+    }
+    if (LOG_LEVELS->{'notice'} >= $syslog_log_level) {
+        syslog(LOG_NOTICE, $message, @_);
+    }
+}
+
+#
+# Output an error message, then exit.
+#
+sub log_err ($;@) {
+    my $message = shift;
+
+    if (LOG_LEVELS->{'err'} >= $stderr_log_level) {
+	printf(STDERR "%s: error: $message\n", PROGRAM, @_);
+    }
+    if (LOG_LEVELS->{'err'} >= $syslog_log_level) {
+        syslog(LOG_ERR, $message, @_);
+    }
+    exit(1);
+}
+
+#
+# Lock a lock file.
+#
+sub lock_file ($) {
+    my ($file) = @_;
+    log_debug('begin: file=%s', $file);
+
+    my $fh;
+    if (!open($fh, '>', $file)) {
+	log_err('failed to open the lock file, %s: file=%s', $!, $file);
+    }
+
+    printf($fh "%d\n", $$);
+    if (!flock($fh, LOCK_EX | LOCK_NB)) {
+	log_err('another zbx_failover script is running');
+    }
+    log_debug('lock succeeded');
+
+    log_debug('end');
+    return $fh;
+}
+
+#
+# Unlock a lock file.
+#
+sub unlock_file ($) {
+    my ($fh) = @_;
+
+    log_debug('begin');
+    flock($fh, LOCK_UN);
+    close($fh);
+    log_debug('end');
+}
+
+# Do not delete.
+1;

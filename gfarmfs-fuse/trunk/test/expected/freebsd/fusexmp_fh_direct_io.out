@@ -1,0 +1,4 @@
+fusexmp_fh: fuse_opt="-o direct_io"
+NG [ftruncate(0) mode=0400] test_ftruncate(): ftruncate: Permission denied
+NG [ftruncate(0) mode=0000] test_ftruncate(): ftruncate: Permission denied
+2 tests failed

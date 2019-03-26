@@ -1,0 +1,50 @@
+#!/bin/sh
+#
+# $Id: umount.gfarmfs 3899 2008-02-22 04:29:05Z tatebe $
+
+USAGE() {
+cat <<EOF
+umount.gfarmfs [ mount_point ]
+
+Environment variable:
+    GFS_USERNAME    global user name in Gfarm   (default: $LOGNAME)
+    GFS_MOUNTDIR    mount point  (default: /gfs/home/$GFS_USERNAME)
+EOF
+	exit 1
+}
+
+UMOUNT_FUSE()
+{
+	MNTDIR=$1
+	retry=10
+	i=0
+	while true; do
+		fusermount -u $MNTDIR > /dev/null 2>&1
+		if [ $? -eq 0 ]; then
+			return 0
+		fi
+		ls -l $MNTDIR > /dev/null 2>&1
+		if [ $i -ge $retry ]; then
+			return 1
+		fi
+		i=`expr $i + 1`
+	done
+}
+
+[ x"$1" = x"-h" -o x"$1" = x"--help" ] && USAGE
+
+if [ $# -gt 0 ]; then
+	GFS_MOUNTDIR=$1
+	shift
+fi
+
+: ${GFS_USERNAME:=`gfwhoami 2> /dev/null`}
+: ${GFS_USERNAME:=$USER}
+: ${GFS_USERNAME:=$LOGNAME}
+: ${GFS_USERNAME:=`logname 2> /dev/null`}
+: ${GFS_MOUNTDIR:=/gfs/home/$GFS_USERNAME}
+
+UMOUNT_FUSE $GFS_MOUNTDIR
+
+exit $?
+

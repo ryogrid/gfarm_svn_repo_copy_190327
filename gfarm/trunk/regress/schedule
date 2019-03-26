@@ -1,0 +1,128 @@
+lib/libgfarm/gfarm/gfarm_initialize/noarg.sh
+lib/libgfarm/gfarm/gfs_pio_set_local/normal.sh
+lib/libgfarm/gfarm/gfs_pio_create/normal.sh
+lib/libgfarm/gfarm/gfs_pio_open/normal.sh
+lib/libgfarm/gfarm/gfs_pio_close/normal.sh
+lib/libgfarm/gfarm/gfs_pio_set_view_index/normal.sh
+lib/libgfarm/gfarm/gfs_pio_set_view_local/normal.sh
+lib/libgfarm/gfarm/gfs_pio_error/normal.sh
+lib/libgfarm/gfarm/gfs_pio_eof/not_eof.sh
+lib/libgfarm/gfarm/gfs_pio_seek/get_current.sh
+lib/libgfarm/gfarm/gfs_pio_seek/nop.sh
+lib/libgfarm/gfarm/gfs_pio_getc/empty.sh
+lib/libgfarm/gfarm/gfs_pio_ungetc/not_follow_getc.sh
+lib/libgfarm/gfarm/gfs_pio_getline/empty.sh
+lib/libgfarm/gfarm/gfs_pio_gets/empty.sh
+lib/libgfarm/gfarm/gfs_pio_readline/dynamic_alloc_read_empty.sh
+lib/libgfarm/gfarm/gfs_pio_readdelim/dynamic_alloc_read_empty.sh
+lib/libgfarm/gfarm/gfs_pio_read/empty.sh
+lib/libgfarm/gfarm/gfs_pio_eof/eof.sh
+lib/libgfarm/gfarm/gfs_pio_putc/normal.sh
+lib/libgfarm/gfarm/gfs_pio_putline/normal.sh
+lib/libgfarm/gfarm/gfs_pio_puts/normal.sh
+lib/libgfarm/gfarm/gfs_pio_write/normal.sh
+lib/libgfarm/gfarm/gfs_pio_flush/normal.sh
+lib/libgfarm/gfarm/gfs_pio_sync/normal.sh
+lib/libgfarm/gfarm/gfs_pio_datasync/normal.sh
+lib/libgfarm/gfarm/gfs_stat/normal.sh
+lib/libgfarm/gfarm/gfs_pio_truncate/shorter.sh
+lib/libgfarm/gfarm/gfs_chdir/current.sh
+lib/libgfarm/gfarm/gfs_chdir/root.sh
+lib/libgfarm/gfarm/gfs_realpath/current.sh
+lib/libgfarm/gfarm/gfs_opendir/current.sh
+lib/libgfarm/gfarm/gfs_opendir/root.sh
+lib/libgfarm/gfarm/gfs_closedir/current.sh
+lib/libgfarm/gfarm/gfs_readdir/normal.sh
+lib/libgfarm/gfarm/gfs_glob_init/normal.sh
+lib/libgfarm/gfarm/gfs_glob/normal.sh
+lib/libgfarm/gfarm/gfs_glob_add/normal.sh
+lib/libgfarm/gfarm/gfs_chmod/file_normal.sh
+lib/libgfarm/gfarm/gfs_utimes/set_current.sh
+lib/libgfarm/gfarm/gfs_utimes/specify_time.sh
+lib/libgfarm/gfarm/gfs_mkdir/normal.sh
+lib/libgfarm/gfarm/gfs_rmdir/normal.sh
+lib/libgfarm/gfarm/gfs_unlink/normal.sh
+lib/libgfarm/gfarm/gfs_unlink_section/normal.sh
+lib/libgfarm/gfarm/gfs_rename/file_normal.sh
+lib/libgfarm/gfarm/gfarm_stringlist_init/normal.sh
+lib/libgfarm/gfarm/gfarm_stringlist_add/normal.sh
+lib/libgfarm/gfarm/gfarm_stringlist_elem/normal.sh
+lib/libgfarm/gfarm/gfarm_stringlist_length/normal.sh
+lib/libgfarm/gfarm/gfarm_stringlist_cat/normal.sh
+lib/libgfarm/gfarm/GGFARM_STRINGLIST_ELEM/normal.sh
+lib/libgfarm/gfarm/GGFARM_STRINGLIST_STRARRAY/normal.sh
+lib/libgfarm/gfarm/fork-term-init/fti-unlink.sh
+lib/libgfarm/gfarm/seek-write/sw-test.sh
+# gftool/config-gfarm
+gftool/gfps/gfps.sh
+gftool/gfkey/gfkey-cl.sh
+gftool/gfhost/noopt.sh
+gftool/gfhost/gfhost-l.sh
+gftool/gfdf/gfdf.sh
+gftool/gfdf/gfdf-HH.sh
+gftool/gfdf/gfdf-h.sh
+gftool/gfpwd/gfpwd.sh
+gftool/gfls/root.sh
+gftool/gfls/notexist.sh
+gftool/gfmkdir/mkdir.sh
+gftool/gfrmdir/rmdir.sh
+gftool/gfreg/0byte.sh
+gftool/gfrm/0byte.sh
+gftool/gfreg/1byte.sh
+gftool/gfrm/1byte.sh
+gftool/gfstat/gfstat.sh
+gftool/gfusage/gfusage.sh
+gftool/gfrm/gfrm-r_file.sh
+gftool/gfrm/gfrm-r_dir.sh
+gftool/gfexport/0byte.sh
+gftool/gfexport/1byte.sh
+gftool/gfwhere/noopt_+x.sh
+gftool/gfwhere/noopt_-x.sh
+gftool/gfhost/delete-add.sh
+gftool/gfreg/gfreg-h.sh
+gftool/gfreg/gfreg-HH.sh
+gftool/gfreg/gfreg-D.sh
+gftool/gfreg/gfreg-N-I.sh
+gftool/gfreg/gfreg-r.sh
+gftool/gfreg/gfreg-r_dir_to_new_url.sh
+gftool/gfreg/gfreg-r_program_to_new_url.sh
+gftool/gfreg/gfreg-r_file_to_new_url.sh
+gftool/gfrep/gfrep-H_non-exec.sh
+gftool/gfrep/gfrep-H_exec.sh
+#gftool/gfrep/gfrep-d_non-exec.sh		# -d option is obsolete
+#gftool/gfrep/gfrep-d_exec.sh			# -d option is obsolete
+gftool/gfrep/gfrep-DD_non-exec.sh
+gftool/gfrep/gfrep-DD_exec.sh
+gftool/gfrep/gfrep-N2_non-exec.sh
+gftool/gfrep/gfrep-N2_exec.sh
+gftool/gfrep/gfrep-H_dir.sh
+#gftool/gfrep/gfrep-d_dir.sh			# -d option is obsolete
+gftool/gfrep/gfrep-DD_dir.sh
+gftool/gfrep/gfrep-N2_dir.sh
+gftool/gfls/gfls-l.sh
+
+# Do not do this test at the end of schedule, because it takes for a while
+# until the gfarmfs command actually exits after the completion of this test.
+# And clearing the testing environment of "make selfcheck-*" causes the
+# gfarmfs command hang.
+gftool/gfarmfs-fuse.sh
+
+gftool/gfrcmd/gfrcmd.sh
+gftool/gfsched/gfsched.sh
+gftool/gfsched/gfsched-N.sh
+gftool/gfrun/gfrun.sh
+gftool/gfrun/gfrun-u.sh
+gftool/gfchmod/gfchmod_644_file.sh
+gftool/gfchmod/gfchmod_755_file.sh
+gftool/gfchmod/gfchmod_700_dir.sh
+gftool/gfchmod/gfchmod_755_dir.sh
+gftool/gfreg/gfreg-a.sh
+gftool/gfimport_text/import_text-H_0byte.sh
+gftool/gfimport_text/import_text-H_multilines.sh
+# gftool/gfmv/file.sh	# gfmv exists only in gfarm v2
+# gftool/gfmv/dir.sh	# gfmv exists only in gfarm v2
+
+# gftool/gfchmod
+# gftool/gfchown
+# gftool/gfuser
+# gftool/gfkey

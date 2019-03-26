@@ -1,0 +1,4 @@
+fusexmp_fh: fuse_opt=""
+NG [open_acc(O_RDONLY | O_TRUNC) mode=0200 errno=EACCES] check_size(): length 0 instead of 26
+NG [open_acc(O_RDWR | O_TRUNC) mode=0200 errno=EACCES] check_size(): length 0 instead of 26
+2 tests failed
