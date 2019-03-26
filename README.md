@@ -1,4 +1,4 @@
-# gfarm_svn_repo_copy_190327
+# gfarm_svn_repo_partial_snapshot_190327
 code snapshot of gfarm source forge svn repository at 2019/03/27  
 please visit http://oss-tsukuba.org/software/gfarm
 
